@@ -1,0 +1,22 @@
+======================================================================
+QC REPORT
+======================================================================
+cues 111 | rows 333 | distinct target words 250
+
+-- cell balance ---------------------------------------------------
+            rw_en  rw_zh, alignment weighted  str_en  str_zh, alignment weighted  target_len
+condition                                                                                   
+M+E+       0.2900                     0.1753  0.1116                      0.0362      4.9279
+M+E-       0.0392                     0.1083  0.0000                      0.0269      5.0270
+M-E+       0.1686                     0.0201  0.0499                      0.0000      4.8739
+
+rw_en should be high in E+ and low in E-; rw_zh2en high in M+ and low in M-.
+target_len should be similar across cells.
+
+-- overlap checks -------------------------------------------------
+cue also used as a target        : 24   (expect 0)
+M+E+ and M-E- share a word set   : False   (expect True, by design)
+max uses of any one target       : 5   (expect 2)
+
+-- completeness ---------------------------------------------------
+cues with an incomplete cell     : 0   (expect 0)
