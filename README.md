@@ -39,8 +39,7 @@ python counterbalance.py
 python -m stimuli_pipeline all
 ```
 
-Both scripts locate `data/`, `cache/`, `output/` and `manual_review/` relative to the
-parent folder, so they work from anywhere as long as the repo layout is intact.
+The `data` folder needs to be created to include the RW, strength, translation, and covariate norms prior to running.
 
 ## Configurable parameters
 
