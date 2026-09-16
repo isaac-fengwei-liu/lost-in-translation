@@ -44,12 +44,68 @@ MATRIX_COLUMNS = {
 ROUTE_STRENGTH_COLUMN = "str_zh"
 ROUTE_STRENGTH_ALIASES = ("str_zh", "route_s_zh")
 
+# Unweighted Chinese respondent count on the pair's own translation route -- the
+# raw SWOW-ZH count behind `str_zh`, as opposed to `cnt_zh, alignment weighted`
+# (in MATRIX_COLUMNS below), which is aggregated across routes and weighted by
+# translation alignment. Placed right after `cnt_zh, alignment weighted` in the
+# final design.
+ROUTE_COUNT_COLUMN = "cnt_zh"
 
-def _route_strength(latent: Dict[str, float]) -> Optional[float]:
-    for k in ROUTE_STRENGTH_ALIASES:
-        if k in latent:
-            return float(latent[k])
-    return None
+
+def _fill_route_quantity(ctx: StimulusContext, df: pd.DataFrame, column: str,
+                         matrix: np.ndarray, latent_key: str,
+                         aliases: Sequence[str] = (), after: Optional[str] = None,
+                         wanted: Optional[set] = None) -> Tuple[Optional[str], int]:
+    """Fill (or create) a per-route Mandarin quantity: the value on the SPECIFIC
+    winning cue_zh->target_zh route (e.g. `str_zh`, `cnt_zh`) -- not to be confused
+    with the aggregated, alignment-weighted quantities in MATRIX_COLUMNS (e.g.
+    `cnt_zh, alignment weighted`), which are pooled over every translation route.
+
+    Reads the value straight from `matrix` at the row's recorded (route_cue_zh,
+    route_target_zh); if no route is recorded on the row, recovers it via
+    `ctx.find_latent_route` -- the same winning route `str_zh` already uses. Rows
+    with no Mandarin route at all (M-E-, M-E+) are correctly left blank.
+
+    If `column` doesn't exist in `df` yet, it is created (all-NaN) and, when
+    `after` names an existing column, inserted immediately to its right -- this is
+    how a brand-new column (e.g. `cnt_zh` on an older reviewed file) lands in the
+    right place in the final design without a separate reordering pass.
+    """
+    if wanted is not None and column not in wanted and not any(a in wanted for a in aliases):
+        return None, 0
+
+    existing = [c for c in (*aliases, column) if c in df.columns]
+    col = existing[0] if existing else column
+    created = col not in df.columns
+    if created:
+        df[col] = np.nan
+        if after is not None and after in df.columns:
+            df.insert(df.columns.get_loc(after) + 1, col, df.pop(col))
+
+    gaps = df.index[df[col].isna()]
+    n_route, n_recovered, no_route = 0, 0, []
+    for i in gaps:
+        a = df.at[i, "route_cue_zh"] if "route_cue_zh" in df.columns else None
+        b = df.at[i, "route_target_zh"] if "route_target_zh" in df.columns else None
+        za, zb = ctx.zpos.get(a), ctx.zpos.get(b)
+        if za is not None and zb is not None:
+            df.at[i, col] = float(matrix[za, zb])
+            n_route += 1
+            continue
+        latent = ctx.find_latent_route(df.at[i, "cue_en"], df.at[i, "target_en"])
+        value = latent.get(latent_key) if latent is not None else None
+        if value is not None:
+            df.at[i, col] = float(value)
+            n_recovered += 1
+        else:
+            no_route.append((df.at[i, "cue_en"], df.at[i, "target_en"],
+                             df.at[i, "condition"]))
+
+    if no_route:
+        by_cond = Counter(c for _, _, c in no_route)
+        log(f"  {len(no_route)} row(s) left blank -- no Mandarin route "
+            f"(expected for M-E-/M-E+): {dict(by_cond)}")
+    return col, n_route + n_recovered
 
 
 def patch_reviewed_metrics(ctx: StimulusContext, v_design: pd.DataFrame,
@@ -92,35 +148,18 @@ def patch_reviewed_metrics(ctx: StimulusContext, v_design: pd.DataFrame,
         if n:
             filled[col] = n
 
-    # ---- the route strength ------------------------------------------------
-    column = next((c for c in ROUTE_STRENGTH_ALIASES if _target(c)), None)
-    if column is not None:
-        gaps = df.index[df[column].isna()]
-        n_route, n_recovered, no_route = 0, 0, []
-        for i in gaps:
-            a = df.at[i, "route_cue_zh"] if "route_cue_zh" in df.columns else None
-            b = df.at[i, "route_target_zh"] if "route_target_zh" in df.columns else None
-            za, zb = ctx.zpos.get(a), ctx.zpos.get(b)
-            if za is not None and zb is not None:
-                df.at[i, column] = float(ctx.s_zh[za, zb])
-                n_route += 1
-                continue
-            latent = ctx.find_latent_route(df.at[i, "cue_en"], df.at[i, "target_en"])
-            value = _route_strength(latent) if latent is not None else None
-            if value is not None:
-                df.at[i, column] = value
-                n_recovered += 1
-            else:
-                no_route.append((df.at[i, "cue_en"], df.at[i, "target_en"],
-                                 df.at[i, "condition"]))
-        if n_route or n_recovered:
-            filled[column] = n_route + n_recovered
-            log(f"  {column}: {n_route} filled from the route recorded "
-                f"on the row, {n_recovered} from the recovered winning route")
-        if no_route:
-            by_cond = Counter(c for _, _, c in no_route)
-            log(f"  {len(no_route)} row(s) left blank -- no Mandarin route "
-                f"(expected for M-E-/M-E+): {dict(by_cond)}")
+    # ---- per-route Mandarin quantities: str_zh (existing) and cnt_zh (new) ----
+    col, n = _fill_route_quantity(ctx, df, ROUTE_STRENGTH_COLUMN, ctx.s_zh, "str_zh",
+                                  aliases=ROUTE_STRENGTH_ALIASES, wanted=wanted)
+    if n:
+        filled[col] = n
+        log(f"  {col}: {n} filled/recovered from the winning Mandarin route")
+
+    col, n = _fill_route_quantity(ctx, df, ROUTE_COUNT_COLUMN, ctx.c_zh, "cnt_zh",
+                                  after="cnt_zh, alignment weighted", wanted=wanted)
+    if n:
+        filled[col] = n
+        log(f"  {col}: {n} filled/recovered from the winning Mandarin route")
 
     # ---- word lengths ------------------------------------------------------
     for col, src in (("cue_len", "cue_en"), ("target_len", "target_en")):

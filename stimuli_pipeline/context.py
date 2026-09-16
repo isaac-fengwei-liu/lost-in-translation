@@ -93,7 +93,8 @@ class StimulusContext:
     # ---------------------------------------------------------------- routes --
     def find_latent_route(self, cue_en: str, target_en: str) -> Optional[Dict[str, Any]]:
         """Return the winning (cue_zh, target_zh) route for a Mandarin-related English
-        pair, plus each side's Rcs/weight and the word's other candidate translations.
+        pair, plus its Mandarin association strength and respondent count on that
+        route, each side's Rcs/weight, and the word's other candidate translations.
 
         Mirrors aggregate_routes(s_zh, ...): argmax over route pairs of s_zh, restricted
         to routes where rel_zh is actually true (the criterion rel_zh2en is built from).
@@ -130,6 +131,7 @@ class StimulusContext:
             "route_cue_zh": cue_zh,
             "route_target_zh": target_zh,
             "str_zh": float(self.s_zh[cue_idx[a], tgt_idx[b]]),
+            "cnt_zh": float(self.c_zh[cue_idx[a], tgt_idx[b]]),
             "route_cue_rcs": float(edges.loc[(edges["en"] == cue_en) & (edges["zh"] == cue_zh), "rcs"].iloc[0]),
             "route_target_rcs": float(edges.loc[(edges["en"] == target_en) & (edges["zh"] == target_zh), "rcs"].iloc[0]),
             "route_cue_w": float(cue_w[a]),
